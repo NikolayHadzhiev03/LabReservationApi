@@ -1,5 +1,6 @@
 using LabReservation.BL.Services.Interfaces;
 using LabReservation.BL.Services.Kafka;
+using LabReservation.BL.Services.KafkaCache;
 using LabReservation.DataLayer.Repositories.Interfaces;
 using LabReservation.Models.DTO;
 using LabReservation.Models.Entities;
@@ -17,15 +18,18 @@ namespace LabReservation.BL.Services.Implementations
     {
         private readonly ILabRepository _labRepository;
         private readonly IKafkaProducer _kafkaProducer;
+        private readonly ICacheStore<Lab> _labCache;
         private readonly ILogger<LabService> _logger;
 
         public LabService(
             ILabRepository labRepository,
             IKafkaProducer kafkaProducer,
+            ICacheStore<Lab> labCache,
             ILogger<LabService> logger)
         {
             _labRepository = labRepository;
             _kafkaProducer = kafkaProducer;
+            _labCache = labCache;
             _logger = logger;
         }
 
@@ -45,14 +49,29 @@ namespace LabReservation.BL.Services.Implementations
 
         public async Task<IEnumerable<LabDto>> GetAllAsync()
         {
-            _logger.LogInformation("Getting all labs");
+            // Serve from the in-memory cache (populated from Kafka snapshots) when available;
+            // fall back to the database when the cache has not been hydrated yet.
+            if (_labCache.Count > 0)
+            {
+                _logger.LogInformation("Getting all labs from cache ({Count} entries)", _labCache.Count);
+                return _labCache.GetAll().Adapt<IEnumerable<LabDto>>();
+            }
+
+            _logger.LogInformation("Getting all labs from database (cache empty)");
             var labs = await _labRepository.GetAllAsync();
             return labs.Adapt<IEnumerable<LabDto>>();
         }
 
         public async Task<IEnumerable<LabDto>> GetAvailableLabsAsync()
         {
-            _logger.LogInformation("Getting available labs");
+            if (_labCache.Count > 0)
+            {
+                _logger.LogInformation("Getting available labs from cache");
+                var availableFromCache = _labCache.GetAll().Where(l => l.IsAvailable);
+                return availableFromCache.Adapt<IEnumerable<LabDto>>();
+            }
+
+            _logger.LogInformation("Getting available labs from database (cache empty)");
             var labs = await _labRepository.GetAvailableLabsAsync();
             return labs.Adapt<IEnumerable<LabDto>>();
         }
