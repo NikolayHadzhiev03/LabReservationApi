@@ -60,11 +60,14 @@ namespace LabReservation.Host.Services.Kafka
         public async Task PublishAsync<TPayload>(
             string eventType,
             TPayload payload,
+            string? topic = null,
             CancellationToken cancellationToken = default)
             where TPayload : class
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(eventType);
             ArgumentNullException.ThrowIfNull(payload);
+
+            var targetTopic = string.IsNullOrWhiteSpace(topic) ? _settings.TopicName : topic;
 
             var payloadJson = JsonSerializer.SerializeToElement(payload, _jsonOptions);
             var envelope = new KafkaEventEnvelope
@@ -80,7 +83,7 @@ namespace LabReservation.Host.Services.Kafka
             try
             {
                 var deliveryResult = await _producer.ProduceAsync(
-                    _settings.TopicName,
+                    targetTopic,
                     new Message<string, string>
                     {
                         Key = eventType,
@@ -100,7 +103,7 @@ namespace LabReservation.Host.Services.Kafka
             {
                 _logger.LogError(ex,
                     "Failed to publish {EventType} to {Topic}: {Reason}",
-                    eventType, _settings.TopicName, ex.Error.Reason);
+                    eventType, targetTopic, ex.Error.Reason);
                 throw;
             }
         }

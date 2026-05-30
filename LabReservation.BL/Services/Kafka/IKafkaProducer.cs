@@ -8,11 +8,13 @@ namespace LabReservation.BL.Services.Kafka
     {
         /// <summary>
         /// Wraps <paramref name="payload"/> in a KafkaEventEnvelope (with EventId, EventType, Timestamp)
-        /// and publishes it as JSON to the configured topic.
+        /// and publishes it as JSON. When <paramref name="topic"/> is null the configured default
+        /// topic is used; pass an explicit topic (e.g. the cache topic) to override it.
         /// </summary>
         Task PublishAsync<TPayload>(
             string eventType,
             TPayload payload,
+            string? topic = null,
             CancellationToken cancellationToken = default)
             where TPayload : class;
     }

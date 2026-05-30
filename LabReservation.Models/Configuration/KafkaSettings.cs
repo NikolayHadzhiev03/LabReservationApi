@@ -8,6 +8,13 @@ namespace LabReservation.Models.Configuration
     {
         public string BootstrapServers { get; set; } = "localhost:9092";
         public string TopicName { get; set; } = "messages-topic";
+
+        // Dedicated topic for periodic full-collection DB snapshots (DbCacheReader -> KafkaCache).
+        public string CacheTopicName { get; set; } = "db-cache-topic";
+
+        // How often DbCacheReader re-reads the database and republishes a snapshot.
+        public int CacheRefreshIntervalSeconds { get; set; } = 60;
+
         public string GroupId { get; set; } = "lab-reservation-consumer-group";
         public string AutoOffsetReset { get; set; } = "Earliest";
         public int MessageMaxRetries { get; set; } = 3;
