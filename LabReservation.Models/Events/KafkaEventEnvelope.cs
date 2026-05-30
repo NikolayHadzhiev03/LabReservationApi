@@ -27,5 +27,9 @@ namespace LabReservation.Models.Events
         public const string ReservationDeleted = "ReservationDeleted";
         public const string ReservationCancelled = "ReservationCancelled";
         public const string ReservationConfirmed = "ReservationConfirmed";
+
+        // Periodic full-collection snapshots published by DbCacheReader to the cache topic.
+        public const string LabsSnapshot = "LabsSnapshot";
+        public const string ReservationsSnapshot = "ReservationsSnapshot";
     }
 }
