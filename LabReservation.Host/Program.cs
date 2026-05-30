@@ -2,8 +2,10 @@ using FluentValidation;
 using FluentValidation.AspNetCore;
 using LabReservation.BL.Services.Implementations;
 using LabReservation.BL.Services.Interfaces;
+using LabReservation.BL.Services.Kafka;
 using LabReservation.DataLayer.Repositories.Implementations;
 using LabReservation.DataLayer.Repositories.Interfaces;
+using LabReservation.Host.Services.Kafka;
 using LabReservation.Models.Configuration;
 using Mapster;
 using MapsterMapper;
@@ -29,6 +31,10 @@ builder.Services.AddControllers();
 builder.Services.Configure<MongoDbSettings>(
     builder.Configuration.GetSection("MongoDbSettings"));
 
+// Configure Kafka settings
+builder.Services.Configure<KafkaSettings>(
+    builder.Configuration.GetSection("KafkaSettings"));
+
 // Register repositories
 builder.Services.AddScoped<ILabRepository, LabRepository>();
 builder.Services.AddScoped<IReservationRepository, ReservationRepository>();
@@ -36,6 +42,12 @@ builder.Services.AddScoped<IReservationRepository, ReservationRepository>();
 // Register services
 builder.Services.AddScoped<ILabService, LabService>();
 builder.Services.AddScoped<IReservationService, ReservationService>();
+
+// Register Kafka producer (Singleton — IProducer is thread-safe and recommended to be shared)
+builder.Services.AddSingleton<IKafkaProducer, KafkaProducer>();
+
+// Register Kafka consumer as a BackgroundService for graceful startup/shutdown
+builder.Services.AddHostedService<KafkaConsumer>();
 
 // Configure Mapster
 var typeAdapterConfig = TypeAdapterConfig.GlobalSettings;

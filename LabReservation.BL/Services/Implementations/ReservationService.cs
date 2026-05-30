@@ -1,7 +1,9 @@
 using LabReservation.BL.Services.Interfaces;
+using LabReservation.BL.Services.Kafka;
 using LabReservation.DataLayer.Repositories.Interfaces;
 using LabReservation.Models.DTO;
 using LabReservation.Models.Entities;
+using LabReservation.Models.Events;
 using LabReservation.Models.Requests;
 using Mapster;
 using Microsoft.Extensions.Logging;
@@ -15,227 +17,272 @@ namespace LabReservation.BL.Services.Implementations
     {
         private readonly IReservationRepository _reservationRepository;
         private readonly ILabRepository _labRepository;
+        private readonly IKafkaProducer _kafkaProducer;
         private readonly ILogger<ReservationService> _logger;
 
         public ReservationService(
-         IReservationRepository reservationRepository,
-       ILabRepository labRepository,
-           ILogger<ReservationService> logger)
+            IReservationRepository reservationRepository,
+            ILabRepository labRepository,
+            IKafkaProducer kafkaProducer,
+            ILogger<ReservationService> logger)
         {
-   _reservationRepository = reservationRepository;
-  _labRepository = labRepository;
-   _logger = logger;
- }
+            _reservationRepository = reservationRepository;
+            _labRepository = labRepository;
+            _kafkaProducer = kafkaProducer;
+            _logger = logger;
+        }
 
         public async Task<ReservationDto?> GetByIdAsync(string id)
-   {
-      _logger.LogInformation("Getting reservation with ID: {ReservationId}", id);
-    var reservation = await _reservationRepository.GetByIdAsync(id);
-            
-       if (reservation == null)
+        {
+            _logger.LogInformation("Getting reservation with ID: {ReservationId}", id);
+            var reservation = await _reservationRepository.GetByIdAsync(id);
+
+            if (reservation == null)
             {
-    _logger.LogWarning("Reservation with ID {ReservationId} not found", id);
-   return null;
+                _logger.LogWarning("Reservation with ID {ReservationId} not found", id);
+                return null;
             }
 
             var dto = reservation.Adapt<ReservationDto>();
-        
-            // Get lab name for display
-   var lab = await _labRepository.GetByIdAsync(reservation.LabId);
-       dto.LabName = lab?.Name ?? "Unknown Lab";
-     
-    return dto;
+
+            var lab = await _labRepository.GetByIdAsync(reservation.LabId);
+            dto.LabName = lab?.Name ?? "Unknown Lab";
+
+            return dto;
         }
 
-  public async Task<IEnumerable<ReservationDto>> GetAllAsync()
+        public async Task<IEnumerable<ReservationDto>> GetAllAsync()
         {
-   _logger.LogInformation("Getting all reservations");
-  var reservations = await _reservationRepository.GetAllAsync();
-   var dtos = new List<ReservationDto>();
-     
-    foreach (var reservation in reservations)
-    {
-            var dto = reservation.Adapt<ReservationDto>();
-    var lab = await _labRepository.GetByIdAsync(reservation.LabId);
-             dto.LabName = lab?.Name ?? "Unknown Lab";
-      dtos.Add(dto);
-  }
-            
-            return dtos;
-    }
+            _logger.LogInformation("Getting all reservations");
+            var reservations = await _reservationRepository.GetAllAsync();
+            var dtos = new List<ReservationDto>();
 
-     public async Task<IEnumerable<ReservationDto>> GetByLabIdAsync(string labId)
+            foreach (var reservation in reservations)
+            {
+                var dto = reservation.Adapt<ReservationDto>();
+                var lab = await _labRepository.GetByIdAsync(reservation.LabId);
+                dto.LabName = lab?.Name ?? "Unknown Lab";
+                dtos.Add(dto);
+            }
+
+            return dtos;
+        }
+
+        public async Task<IEnumerable<ReservationDto>> GetByLabIdAsync(string labId)
         {
-     _logger.LogInformation("Getting reservations for lab: {LabId}", labId);
-  var reservations = await _reservationRepository.GetByLabIdAsync(labId);
+            _logger.LogInformation("Getting reservations for lab: {LabId}", labId);
+            var reservations = await _reservationRepository.GetByLabIdAsync(labId);
             var lab = await _labRepository.GetByIdAsync(labId);
-     var labName = lab?.Name ?? "Unknown Lab";
-      
-  return reservations.Select(r =>
-    {
-var dto = r.Adapt<ReservationDto>();
-        dto.LabName = labName;
-          return dto;
+            var labName = lab?.Name ?? "Unknown Lab";
+
+            return reservations.Select(r =>
+            {
+                var dto = r.Adapt<ReservationDto>();
+                dto.LabName = labName;
+                return dto;
             });
         }
 
         public async Task<IEnumerable<ReservationDto>> GetByCustomerEmailAsync(string email)
-     {
+        {
             _logger.LogInformation("Getting reservations for customer: {Email}", email);
-       var reservations = await _reservationRepository.GetByCustomerEmailAsync(email);
-      var dtos = new List<ReservationDto>();
-   
+            var reservations = await _reservationRepository.GetByCustomerEmailAsync(email);
+            var dtos = new List<ReservationDto>();
+
             foreach (var reservation in reservations)
-{
-            var dto = reservation.Adapt<ReservationDto>();
-         var lab = await _labRepository.GetByIdAsync(reservation.LabId);
+            {
+                var dto = reservation.Adapt<ReservationDto>();
+                var lab = await _labRepository.GetByIdAsync(reservation.LabId);
                 dto.LabName = lab?.Name ?? "Unknown Lab";
-         dtos.Add(dto);
-   }
-            
-  return dtos;
+                dtos.Add(dto);
+            }
+
+            return dtos;
         }
 
         public async Task<ReservationDto> CreateAsync(CreateReservationRequest request)
         {
-   _logger.LogInformation("Creating reservation for lab {LabId} by {CustomerName}", request.LabId, request.CustomerName);
-     
-      // Verify lab exists
-       var lab = await _labRepository.GetByIdAsync(request.LabId);
-   if (lab == null)
-            {
-          _logger.LogError("Lab {LabId} not found", request.LabId);
-       throw new InvalidOperationException($"Lab with ID {request.LabId} not found");
-  }
+            _logger.LogInformation("Creating reservation for lab {LabId} by {CustomerName}", request.LabId, request.CustomerName);
 
-            // Check for conflicting reservations
-      var conflicts = await _reservationRepository.GetConflictingReservationsAsync(
-    request.LabId, request.StartTime, request.EndTime);
-      
+            var lab = await _labRepository.GetByIdAsync(request.LabId);
+            if (lab == null)
+            {
+                _logger.LogError("Lab {LabId} not found", request.LabId);
+                throw new InvalidOperationException($"Lab with ID {request.LabId} not found");
+            }
+
+            var conflicts = await _reservationRepository.GetConflictingReservationsAsync(
+                request.LabId, request.StartTime, request.EndTime);
+
             if (conflicts.Any())
-    {
-    _logger.LogWarning("Conflicting reservations found for lab {LabId}", request.LabId);
-       throw new InvalidOperationException("The requested time slot conflicts with existing reservations");
-     }
+            {
+                _logger.LogWarning("Conflicting reservations found for lab {LabId}", request.LabId);
+                throw new InvalidOperationException("The requested time slot conflicts with existing reservations");
+            }
 
             var reservation = request.Adapt<Reservation>();
-       reservation.Status = ReservationStatus.Pending;
-          
-    var createdReservation = await _reservationRepository.CreateAsync(reservation);
-       _logger.LogInformation("Reservation created with ID: {ReservationId}", createdReservation.Id);
-            
-var dto = createdReservation.Adapt<ReservationDto>();
-          dto.LabName = lab.Name;
-        
-            return dto;
-   }
+            reservation.Status = ReservationStatus.Pending;
 
-   public async Task<ReservationDto?> UpdateAsync(string id, UpdateReservationRequest request)
+            var createdReservation = await _reservationRepository.CreateAsync(reservation);
+            _logger.LogInformation("Reservation created with ID: {ReservationId}", createdReservation.Id);
+
+            await PublishEventSafelyAsync(KafkaEventTypes.ReservationCreated, new ReservationCreatedEvent(
+                createdReservation.Id,
+                createdReservation.LabId,
+                createdReservation.CustomerName,
+                createdReservation.CustomerEmail,
+                createdReservation.StartTime,
+                createdReservation.EndTime,
+                createdReservation.Purpose,
+                createdReservation.Status,
+                createdReservation.CreatedAt));
+
+            var dto = createdReservation.Adapt<ReservationDto>();
+            dto.LabName = lab.Name;
+
+            return dto;
+        }
+
+        public async Task<ReservationDto?> UpdateAsync(string id, UpdateReservationRequest request)
         {
-   _logger.LogInformation("Updating reservation: {ReservationId}", id);
-       
-     var existingReservation = await _reservationRepository.GetByIdAsync(id);
+            _logger.LogInformation("Updating reservation: {ReservationId}", id);
+
+            var existingReservation = await _reservationRepository.GetByIdAsync(id);
             if (existingReservation == null)
             {
                 _logger.LogWarning("Reservation {ReservationId} not found", id);
-       return null;
+                return null;
             }
 
-          // Check for conflicts if time changed
-    if (existingReservation.StartTime != request.StartTime || existingReservation.EndTime != request.EndTime)
-       {
-       var conflicts = await _reservationRepository.GetConflictingReservationsAsync(
-           existingReservation.LabId, request.StartTime, request.EndTime, id);
-  
-      if (conflicts.Any())
-     {
-      _logger.LogWarning("Update would cause conflict for reservation {ReservationId}", id);
-      throw new InvalidOperationException("The requested time slot conflicts with existing reservations");
-             }
-  }
+            if (existingReservation.StartTime != request.StartTime || existingReservation.EndTime != request.EndTime)
+            {
+                var conflicts = await _reservationRepository.GetConflictingReservationsAsync(
+                    existingReservation.LabId, request.StartTime, request.EndTime, id);
 
-    existingReservation.StartTime = request.StartTime;
-     existingReservation.EndTime = request.EndTime;
- existingReservation.Purpose = request.Purpose;
-          existingReservation.Status = request.Status;
-            
-var updatedReservation = await _reservationRepository.UpdateAsync(id, existingReservation);
-       
- if (updatedReservation == null)
-    {
- _logger.LogError("Failed to update reservation {ReservationId}", id);
-      return null;
+                if (conflicts.Any())
+                {
+                    _logger.LogWarning("Update would cause conflict for reservation {ReservationId}", id);
+                    throw new InvalidOperationException("The requested time slot conflicts with existing reservations");
+                }
             }
 
-var dto = updatedReservation.Adapt<ReservationDto>();
-      var lab = await _labRepository.GetByIdAsync(updatedReservation.LabId);
-      dto.LabName = lab?.Name ?? "Unknown Lab";
-            
- _logger.LogInformation("Reservation updated: {ReservationId}", id);
-         return dto;
+            existingReservation.StartTime = request.StartTime;
+            existingReservation.EndTime = request.EndTime;
+            existingReservation.Purpose = request.Purpose;
+            existingReservation.Status = request.Status;
+
+            var updatedReservation = await _reservationRepository.UpdateAsync(id, existingReservation);
+
+            if (updatedReservation == null)
+            {
+                _logger.LogError("Failed to update reservation {ReservationId}", id);
+                return null;
+            }
+
+            await PublishEventSafelyAsync(KafkaEventTypes.ReservationUpdated, new ReservationUpdatedEvent(
+                updatedReservation.Id,
+                updatedReservation.LabId,
+                updatedReservation.StartTime,
+                updatedReservation.EndTime,
+                updatedReservation.Purpose,
+                updatedReservation.Status,
+                updatedReservation.UpdatedAt));
+
+            var dto = updatedReservation.Adapt<ReservationDto>();
+            var lab = await _labRepository.GetByIdAsync(updatedReservation.LabId);
+            dto.LabName = lab?.Name ?? "Unknown Lab";
+
+            _logger.LogInformation("Reservation updated: {ReservationId}", id);
+            return dto;
         }
 
         public async Task<bool> DeleteAsync(string id)
-   {
-        _logger.LogInformation("Deleting reservation: {ReservationId}", id);
-          var result = await _reservationRepository.DeleteAsync(id);
-       
-       if (result)
-      {
-      _logger.LogInformation("Reservation deleted: {ReservationId}", id);
-         }
-    else
-    {
-     _logger.LogWarning("Reservation {ReservationId} not found for deletion", id);
-         }
+        {
+            _logger.LogInformation("Deleting reservation: {ReservationId}", id);
+            var result = await _reservationRepository.DeleteAsync(id);
 
-return result;
-        }
-
-   public async Task<bool> CancelReservationAsync(string id)
- {
- _logger.LogInformation("Cancelling reservation: {ReservationId}", id);
-    
-     var reservation = await _reservationRepository.GetByIdAsync(id);
-        if (reservation == null)
-{
-                _logger.LogWarning("Reservation {ReservationId} not found for cancellation", id);
-   return false;
+            if (result)
+            {
+                _logger.LogInformation("Reservation deleted: {ReservationId}", id);
+                await PublishEventSafelyAsync(KafkaEventTypes.ReservationDeleted, new ReservationDeletedEvent(
+                    id,
+                    DateTime.UtcNow));
+            }
+            else
+            {
+                _logger.LogWarning("Reservation {ReservationId} not found for deletion", id);
             }
 
-       reservation.Status = ReservationStatus.Cancelled;
-    var result = await _reservationRepository.UpdateAsync(id, reservation);
-            
-    if (result != null)
-    {
-    _logger.LogInformation("Reservation cancelled: {ReservationId}", id);
-      return true;
-       }
+            return result;
+        }
 
-      return false;
+        public async Task<bool> CancelReservationAsync(string id)
+        {
+            _logger.LogInformation("Cancelling reservation: {ReservationId}", id);
+
+            var reservation = await _reservationRepository.GetByIdAsync(id);
+            if (reservation == null)
+            {
+                _logger.LogWarning("Reservation {ReservationId} not found for cancellation", id);
+                return false;
+            }
+
+            reservation.Status = ReservationStatus.Cancelled;
+            var result = await _reservationRepository.UpdateAsync(id, reservation);
+
+            if (result != null)
+            {
+                _logger.LogInformation("Reservation cancelled: {ReservationId}", id);
+                await PublishEventSafelyAsync(KafkaEventTypes.ReservationCancelled, new ReservationCancelledEvent(
+                    result.Id,
+                    result.LabId,
+                    result.CustomerEmail,
+                    DateTime.UtcNow));
+                return true;
+            }
+
+            return false;
         }
 
         public async Task<bool> ConfirmReservationAsync(string id)
         {
-       _logger.LogInformation("Confirming reservation: {ReservationId}", id);
-            
-         var reservation = await _reservationRepository.GetByIdAsync(id);
-   if (reservation == null)
+            _logger.LogInformation("Confirming reservation: {ReservationId}", id);
+
+            var reservation = await _reservationRepository.GetByIdAsync(id);
+            if (reservation == null)
             {
-       _logger.LogWarning("Reservation {ReservationId} not found for confirmation", id);
-     return false;
+                _logger.LogWarning("Reservation {ReservationId} not found for confirmation", id);
+                return false;
             }
 
-        reservation.Status = ReservationStatus.Confirmed;
-     var result = await _reservationRepository.UpdateAsync(id, reservation);
- 
+            reservation.Status = ReservationStatus.Confirmed;
+            var result = await _reservationRepository.UpdateAsync(id, reservation);
+
             if (result != null)
             {
-      _logger.LogInformation("Reservation confirmed: {ReservationId}", id);
-     return true;
-    }
+                _logger.LogInformation("Reservation confirmed: {ReservationId}", id);
+                await PublishEventSafelyAsync(KafkaEventTypes.ReservationConfirmed, new ReservationConfirmedEvent(
+                    result.Id,
+                    result.LabId,
+                    result.CustomerEmail,
+                    DateTime.UtcNow));
+                return true;
+            }
 
-      return false;
+            return false;
+        }
+
+        private async Task PublishEventSafelyAsync<TPayload>(string eventType, TPayload payload)
+            where TPayload : class
+        {
+            try
+            {
+                await _kafkaProducer.PublishAsync(eventType, payload);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to publish Kafka event {EventType}", eventType);
+            }
         }
     }
 }

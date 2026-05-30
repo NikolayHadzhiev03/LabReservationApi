@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="AspNetCore.HealthChecks.MongoDb" Version="8.1.0" />
+    <PackageReference Include="Confluent.Kafka" Version="2.6.1" />
     <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
     <PackageReference Include="Mapster" Version="7.4.0" />
     <PackageReference Include="Mapster.DependencyInjection" Version="1.0.1" />
@@ -23,6 +24,10 @@
     <ProjectReference Include="..\LabReservation.BL\LabReservation.BL.csproj" />
     <ProjectReference Include="..\LabReservation.DataLayer\LabReservation.DataLayer.csproj" />
     <ProjectReference Include="..\LabReservation.Models\LabReservation.Models.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="LabReservation.Tests" />
   </ItemGroup>
 
 </Project>
