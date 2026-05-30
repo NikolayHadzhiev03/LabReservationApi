@@ -3,11 +3,13 @@ using FluentValidation.AspNetCore;
 using LabReservation.BL.Services.Implementations;
 using LabReservation.BL.Services.Interfaces;
 using LabReservation.BL.Services.Kafka;
+using LabReservation.BL.Services.KafkaCache;
 using LabReservation.DataLayer.Repositories.Implementations;
 using LabReservation.DataLayer.Repositories.Interfaces;
 using LabReservation.Host.Services.DbCacheReader;
 using LabReservation.Host.Services.Kafka;
 using LabReservation.Models.Configuration;
+using LabReservation.Models.Entities;
 using Mapster;
 using MapsterMapper;
 using Serilog;
@@ -43,6 +45,10 @@ builder.Services.AddScoped<IReservationRepository, ReservationRepository>();
 // Register services
 builder.Services.AddScoped<ILabService, LabService>();
 builder.Services.AddScoped<IReservationService, ReservationService>();
+
+// Register in-memory caches populated from Kafka snapshots (keyed by entity Id)
+builder.Services.AddSingleton<ICacheStore<Lab>>(_ => new InMemoryCacheStore<Lab>(l => l.Id));
+builder.Services.AddSingleton<ICacheStore<Reservation>>(_ => new InMemoryCacheStore<Reservation>(r => r.Id));
 
 // Register Kafka producer (Singleton — IProducer is thread-safe and recommended to be shared)
 builder.Services.AddSingleton<IKafkaProducer, KafkaProducer>();
