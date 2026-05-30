@@ -8,6 +8,7 @@ using LabReservation.DataLayer.Repositories.Implementations;
 using LabReservation.DataLayer.Repositories.Interfaces;
 using LabReservation.Host.Services.DbCacheReader;
 using LabReservation.Host.Services.Kafka;
+using LabReservation.Host.Services.KafkaCache;
 using LabReservation.Models.Configuration;
 using LabReservation.Models.Entities;
 using Mapster;
@@ -58,6 +59,9 @@ builder.Services.AddHostedService<KafkaConsumer>();
 
 // Register the DbCacheReader that publishes periodic full-collection snapshots to the cache topic
 builder.Services.AddHostedService<DbCacheReaderService>();
+
+// Register the cache consumer that applies those snapshots to the in-memory caches
+builder.Services.AddHostedService<DbCacheConsumer>();
 
 // Configure Mapster
 var typeAdapterConfig = TypeAdapterConfig.GlobalSettings;
